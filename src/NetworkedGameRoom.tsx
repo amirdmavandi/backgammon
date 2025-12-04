@@ -1,72 +1,50 @@
 import { FunctionComponent, useEffect, useRef, useState } from "react";
-
-import { useLoaderData } from "react-router-dom";
 import { useAppDispatch, useAppSelector } from "./store/hooks";
 import {
   FirestoreGameData,
-  findLobby,
   getCurrentUser,
-  hasJoinedLobby,
   joinLobbyAsPlayerTwo,
   signIn,
 } from "./Firebase";
-import { onSnapshot } from "firebase/firestore";
+import { doc, setDoc, getDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
 import { GameState, setState } from "./store/gameStateSlice";
 import { setPlayersState } from "./store/playersSlice";
-import {
-  Actions,
-  ActionsContext,
-  NetworkedGameActions,
-} from "./ActionsContext";
 import { setDiceState } from "./store/diceSlice";
 import { setCurrentPlayer } from "./store/currentPlayerSlice";
-import {
-  enqueueNetworkedMoves,
-  invalidateNetworkedMoves,
-} from "./store/animatableMovesSlice";
+import { enqueueNetworkedMoves, invalidateNetworkedMoves } from "./store/animatableMovesSlice";
 import { getClientPlayer, isGameOverState } from "./Utils";
 import GameRoom from "./GameRoom";
 import { setDoublingCubeData } from "./store/doublingCubeSlice";
 import { setMatchScore } from "./store/matchScoreSlice";
 import { setGameBoardState } from "./store/gameBoardSlice";
 import { Player } from "./Types";
-import {
-  default as MatchSettingsMenu,
-  MatchPointValue,
-} from "./MatchSettingsMenu";
+import MatchSettingsMenu, { MatchPointValue } from "./MatchSettingsMenu";
 import SettingsMenuButton from "./SettingsMenuButton";
 import { setShowGameOverDialog } from "./store/settingsSlice";
 import { setReadyForNextGameData } from "./store/readyForNextGameSlice";
-import RoomConnectionError, {
-  RoomConnectionErrorType,
-} from "./RoomConnectionError";
+import RoomConnectionError, { RoomConnectionErrorType } from "./RoomConnectionError";
+import { ActionsContext, Actions, NetworkedGameActions } from "./ActionsContext";
+import { db } from "./Firebase";
 
-type LoaderData = {
-  roomCode: string;
-};
+type NetworkedGameRoomProps = {};
 
-export function loader({ params }: any): LoaderData {
-  return { roomCode: params.roomCode };
+function generateRoomCode(length = 6) {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let code = "";
+  for (let i = 0; i < length; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
 }
 
-const NetworkedGameRoom: FunctionComponent = () => {
-  const { roomCode } = useLoaderData() as LoaderData;
-  const [settings, gameState] = useAppSelector((state) => [
-    state.settings,
-    state.gameState,
-  ]);
+const NetworkedGameRoom: FunctionComponent<NetworkedGameRoomProps> = () => {
+  const [settings, gameState] = useAppSelector((state) => [state.settings, state.gameState]);
   const dispatch = useAppDispatch();
 
   const [matchPointsValue, setMatchPointsValue] = useState<MatchPointValue>(5);
   const [enableDoubling, setEnableDoubling] = useState(true);
-  const [roomConnectionError, setRoomConnectionError] = useState(
-    RoomConnectionErrorType.None
-  );
+  const [roomConnectionError, setRoomConnectionError] = useState(RoomConnectionErrorType.None);
 
-  // We wrap the _gameActions state inside a Ref and use the Ref instead.
-  // That's because if we just used a normal state variable, the onSnapshot()
-  // callback below would just capture the value of gameActions on the very
-  // first render (which would always be null).
   const [_gameActions, _setGameActions] = useState<Actions | null>(null);
   const gameActionsRef = useRef(_gameActions);
   function setGameActions(gameActions: Actions) {
@@ -74,163 +52,157 @@ const NetworkedGameRoom: FunctionComponent = () => {
     _setGameActions(gameActions);
   }
 
-  // We wrap the _previousGameState state inside a Ref and use the Ref instead.
-  // That's because if we just used a normal state variable, the onSnapshot()
-  // callback below would just capture the value of previousGameState on the very
-  // first render (which would always be the starting state).
-  const [_previousGameState, _setPreviousGameState] =
-    useState<GameState>(gameState);
+  const [_previousGameState, _setPreviousGameState] = useState<GameState>(gameState);
   const previousGameStateRef = useRef(_previousGameState);
   function setPreviousGameState(gameState: GameState) {
     previousGameStateRef.current = gameState;
     _setPreviousGameState(gameState);
   }
 
-  useEffect(() => {
-    async function connectToLobby() {
-      await signIn();
-      const docRef = await findLobby(roomCode);
-      if (docRef == null) {
-        setRoomConnectionError(RoomConnectionErrorType.NotFound);
-        return;
-      } else {
-        onSnapshot(docRef, (doc) => {
-          // Dispatch all relevant updates to the redux store
-          let data = doc.data() as FirestoreGameData;
-          dispatch(setState(data.gameState));
-          dispatch(setPlayersState(data.players));
-          dispatch(setCurrentPlayer(data.currentPlayer));
-          dispatch(setDiceState(data.dice));
-          dispatch(setDoublingCubeData(data.doublingCube));
-          dispatch(setMatchScore(data.matchScore));
-          dispatch(setReadyForNextGameData(data.readyForNextGame));
-          if (
-            data.networkedMoves != null &&
-            getClientPlayer(data.players) === data.networkedMoves.animateFor
-          ) {
-            if (gameActionsRef.current == null) {
-              // In this case, we've just reconnected to the DB mid-game. We'll be syncing the
-              // up-to-date boardState at the end of this function, so we should ignore any
-              // networked moves in the DB since we don't want to animate those on top of the
-              // already-up-to-date board.
-              dispatch(invalidateNetworkedMoves(data.networkedMoves));
-            } else {
-              dispatch(enqueueNetworkedMoves(data.networkedMoves));
-            }
-          }
-          // If we're transitioning back to WaitingForBegin (e.g. after both players ready up
-          // after previous game ended) then we should explicitly overwrite local gameBoardState.
-          if (data.gameState === GameState.WaitingToBegin) {
-            dispatch(setGameBoardState(data.gameBoard));
-          }
+  const [roomCode, setRoomCode] = useState<string>("");
+  const [joinCode, setJoinCode] = useState<string>("");
+  const [isHost, setIsHost] = useState<boolean | null>(null);
 
-          // If we're newly transitioning to the GameOverForfeit state, then display the
-          // GameOverDialog. This is how the remote client will display the dialog after the
-          // other client forfeits.
-          if (
-            previousGameStateRef.current !== GameState.GameOverForfeit &&
-            data.gameState === GameState.GameOverForfeit
-          ) {
-            dispatch(setShowGameOverDialog(true));
-          }
-          setPreviousGameState(data.gameState);
+  // تابع ایجاد اتاق
+  const createRoom = async () => {
+    await signIn();
+    let code = generateRoomCode();
+    const roomRef = doc(db, "rooms", code);
 
-          // Handle case where 2nd player is just joining for the first time
-          let isHost = true;
-          if (!hasJoinedLobby(data.players)) {
-            if (data.players.playerTwo != null) {
-              setRoomConnectionError(RoomConnectionErrorType.TooManyPlayers);
-              return;
-            } else {
-              joinLobbyAsPlayerTwo(docRef);
-            }
-            isHost = false;
-          }
-          // In this case, we're reconnecting to an existing lobby. Assign isHost
-          // if the player reconnecting is Player.One.
-          else {
-            let uid = getCurrentUser().uid;
-            isHost =
-              data.players.playerOne != null &&
-              data.players.playerOne.uid === uid;
-          }
+    // چک یکتا بودن کد
+    const roomSnap = await getDoc(roomRef);
+    if (roomSnap.exists()) {
+      // اگر کد تکراری بود دوباره ایجاد شود
+      return createRoom();
+    }
 
-          // This is the first DB read for this session, so update the gameBoardState directly
-          // (since this could be a client reconnecting mid-game). From here on, the client
-          // will manually track its own gameBoardState locally by applying the networkedMoves
-          // that come over the wire.
-          if (gameActionsRef.current == null) {
-            dispatch(setGameBoardState(data.gameBoard));
-            setGameActions(new NetworkedGameActions(isHost, dispatch, docRef));
+    await setDoc(roomRef, {
+      players: { playerOne: getCurrentUser(), playerTwo: null },
+      state: GameState.WaitingToBegin,
+      dice: null,
+      doublingCube: null,
+      matchScore: 0,
+      readyForNextGame: {},
+      gameBoard: null,
+      networkedMoves: null,
+      createdAt: serverTimestamp(),
+    });
 
-            // If we're reconnecting to a game that's in a game over state, trigger
-            // the Game Over dialog again.
-            if (isGameOverState(data.gameState)) {
-              dispatch(setShowGameOverDialog(true));
-            }
-          }
-        });
+    setRoomCode(code);
+    setIsHost(true);
+
+    subscribeToRoom(roomRef, true);
+  };
+
+  // تابع پیوستن به اتاق
+  const joinRoom = async (code: string) => {
+    await signIn();
+    const roomRef = doc(db, "rooms", code.toUpperCase());
+    const roomSnap = await getDoc(roomRef);
+
+    if (!roomSnap.exists()) {
+      setRoomConnectionError(RoomConnectionErrorType.NotFound);
+      return;
+    }
+
+    const data = roomSnap.data() as FirestoreGameData;
+    if (data.players.playerTwo != null) {
+      setRoomConnectionError(RoomConnectionErrorType.TooManyPlayers);
+      return;
+    }
+
+    await joinLobbyAsPlayerTwo(roomRef);
+    setRoomCode(code.toUpperCase());
+    setIsHost(false);
+
+    subscribeToRoom(roomRef, false);
+  };
+
+  // تابع مشترک برای اشتراک روی اتاق
+  const subscribeToRoom = (roomRef: any, host: boolean) => {
+    onSnapshot(roomRef, (doc) => {
+      const data = doc.data() as FirestoreGameData;
+
+      dispatch(setState(data.gameState));
+      dispatch(setPlayersState(data.players));
+      dispatch(setCurrentPlayer(data.currentPlayer));
+      dispatch(setDiceState(data.dice));
+      dispatch(setDoublingCubeData(data.doublingCube));
+      dispatch(setMatchScore(data.matchScore));
+      dispatch(setReadyForNextGameData(data.readyForNextGame));
+
+      if (data.networkedMoves != null && getClientPlayer(data.players) === data.networkedMoves.animateFor) {
+        if (gameActionsRef.current == null) {
+          dispatch(invalidateNetworkedMoves(data.networkedMoves));
+        } else {
+          dispatch(enqueueNetworkedMoves(data.networkedMoves));
+        }
       }
-    }
-    connectToLobby();
-  }, [dispatch, roomCode]);
 
-  if (gameActionsRef.current == null) {
-    // Even if we don't have a NetworkedGameActions instance set up yet, we can still
-    // display the match setup screen to the host while the DB loads. The Start Game
-    // button will not do anything until the DB load finishes, but the latency here should
-    // be very low and not noticeable.
-    if (settings.showMatchSetupScreen) {
-      return (
-        <MatchSettingsMenu
-          matchPointsValue={matchPointsValue}
-          enableDoubling={enableDoubling}
-          onMatchPointsChanged={(newValue) => setMatchPointsValue(newValue)}
-          onEnableDoublingChanged={(enabled) => setEnableDoubling(enabled)}
-          roomCode={roomCode}
-        />
-      );
-    }
-    let spinnerOrError = null;
-    if (roomConnectionError !== RoomConnectionErrorType.None) {
-      spinnerOrError = (
-        <RoomConnectionError type={roomConnectionError} roomCode={roomCode} />
-      );
-    } else {
-      spinnerOrError = <div className={"Networked-gameboard-spinner"} />;
-    }
-    // Show a spinner while data loads or error message if we cannot connect to lobby
-    return spinnerOrError;
-  } else {
-    let contents = null;
-    if (settings.showMatchSetupScreen) {
-      contents = (
-        <MatchSettingsMenu
-          matchPointsValue={matchPointsValue}
-          enableDoubling={enableDoubling}
-          onMatchPointsChanged={(newValue) => setMatchPointsValue(newValue)}
-          onEnableDoublingChanged={(enabled) => setEnableDoubling(enabled)}
-          roomCode={roomCode}
-        />
-      );
-    } else {
-      contents = (
-        <div>
-          <SettingsMenuButton />
-          <GameRoom
-            playerPerspective={
-              gameActionsRef.current.isHostClient() ? Player.One : Player.Two
-            }
-          />
-        </div>
-      );
-    }
+      if (data.gameState === GameState.WaitingToBegin) {
+        dispatch(setGameBoardState(data.gameBoard));
+      }
+
+      if (previousGameStateRef.current !== GameState.GameOverForfeit && data.gameState === GameState.GameOverForfeit) {
+        dispatch(setShowGameOverDialog(true));
+      }
+      setPreviousGameState(data.gameState);
+
+      if (gameActionsRef.current == null) {
+        dispatch(setGameBoardState(data.gameBoard));
+        setGameActions(new NetworkedGameActions(host, dispatch, roomRef));
+
+        if (isGameOverState(data.gameState)) {
+          dispatch(setShowGameOverDialog(true));
+        }
+      }
+    });
+  };
+
+  // UI قبل از اتصال
+  if (isHost === null) {
     return (
-      <ActionsContext.Provider value={gameActionsRef.current}>
-        {contents}
-      </ActionsContext.Provider>
+      <div className="networked-game-menu">
+        <h2>Online Backgammon</h2>
+        <button onClick={createRoom}>Create Room</button>
+        <div>
+          <input
+            type="text"
+            placeholder="Enter Room Code"
+            value={joinCode}
+            onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+          />
+          <button onClick={() => joinRoom(joinCode)}>Join Room</button>
+        </div>
+        {roomConnectionError !== RoomConnectionErrorType.None && (
+          <RoomConnectionError type={roomConnectionError} roomCode={joinCode} />
+        )}
+      </div>
     );
   }
+
+  // UI بعد از اتصال
+  let contents = null;
+  if (settings.showMatchSetupScreen) {
+    contents = (
+      <MatchSettingsMenu
+        matchPointsValue={matchPointsValue}
+        enableDoubling={enableDoubling}
+        onMatchPointsChanged={(newValue) => setMatchPointsValue(newValue)}
+        onEnableDoublingChanged={(enabled) => setEnableDoubling(enabled)}
+        roomCode={roomCode}
+      />
+    );
+  } else {
+    contents = (
+      <div>
+        <SettingsMenuButton />
+        <GameRoom playerPerspective={isHost ? Player.One : Player.Two} />
+      </div>
+    );
+  }
+
+  return <ActionsContext.Provider value={gameActionsRef.current}>{contents}</ActionsContext.Provider>;
 };
 
-export default NetworkedGameRoom;
+export default NetworkedGameRoom;            
