@@ -14,6 +14,9 @@ import matchScoreReducer from "./matchScoreSlice";
 import wipeTransitionReducer from "./wipeTransitionSlice";
 import readyForNextGameReducer from "./readyForNextGameSlice";
 
+// ✅ اضافه کردن slice جدید برای سکه‌ها
+import playerCoinsReducer from "./playerCoinsSlice";
+
 export const store = configureStore({
   reducer: {
     gameBoard: gameBoardReducer,
@@ -29,6 +32,8 @@ export const store = configureStore({
     matchScore: matchScoreReducer,
     wipeTransition: wipeTransitionReducer,
     readyForNextGame: readyForNextGameReducer,
+    // ✅ اضافه شد
+    playerCoins: playerCoinsReducer,
   },
 });
 
