@@ -1,4 +1,4 @@
-import cx from "classnames";
+     import cx from "classnames";
 import { FunctionComponent, useContext } from "react";
 import { ActionsContext, LocalGameActions } from "./ActionsContext";
 import Checker, { CheckerStatus } from "./Checker";
@@ -29,6 +29,7 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
     doublingCubeData,
     gameState,
     matchScore,
+    playerCoins, // اضافه شد: گرفتن مقدار سکه از Redux
   ] = useAppSelector((state) => [
     state.gameBoard,
     state.settings,
@@ -36,6 +37,7 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
     state.doublingCube,
     state.gameState,
     state.matchScore,
+    state.playerCoins, // اضافه شد
   ]);
   let actions = useContext(ActionsContext);
 
@@ -49,6 +51,8 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
   let pips = 167;
   let color = Color.Black;
   let playerScore = 0;
+  let coins = 0; // مقدار سکه برای نمایش
+
   if (side === PlayerCardSide.Bottom) {
     if (actions instanceof LocalGameActions) {
       playerName = playerPerspective === Player.One ? "Player 1" : "Player 2";
@@ -61,6 +65,7 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
       doublingCube = <DoublingCube />;
     }
     playerScore = matchScore[playerPerspective];
+    coins = playerCoins[playerPerspective]; // مقدار سکه برای بازیکن
   } else {
     if (actions instanceof LocalGameActions) {
       playerName = playerPerspective === Player.One ? "Player 2" : "Player 1";
@@ -82,6 +87,10 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
       playerPerspective === Player.One
         ? matchScore[Player.Two]
         : matchScore[Player.One];
+    coins =
+      playerPerspective === Player.One
+        ? playerCoins[Player.Two]
+        : playerCoins[Player.One]; // سکه حریف
   }
 
   return (
@@ -124,6 +133,8 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
               </span>
             }
           </div>
+          {/* ✅ نمایش سکه به انگلیسی */}
+          <div className={"Player-coins-wrapper"}>{"Coins: " + coins + " 🪙"}</div>
         </div>
       </div>
       <div className={"Player-card-doubling-cube-wrapper"}>{doublingCube}</div>
@@ -131,4 +142,4 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
   );
 };
 
-export default PlayerCard;
+export default PlayerCard; 
