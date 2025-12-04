@@ -1,10 +1,12 @@
-import { FunctionComponent, useContext } from "react";
+    import { FunctionComponent, useContext } from "react";
 import { useAppSelector } from "./store/hooks";
 import { ActionsContext, LocalGameActions } from "./ActionsContext";
 import { getClientPlayer, isCurrentPlayer } from "./Utils";
 import { GameState } from "./store/gameStateSlice";
 import { Player } from "./Types";
-import { MatchScore } from "./store/matchScoreSlice";
+
+const MIN_COINS_TO_PLAY = 30;
+const INITIAL_POT = 10;
 
 const OfferDoubleButton: FunctionComponent = () => {
   const [
@@ -22,23 +24,16 @@ const OfferDoubleButton: FunctionComponent = () => {
     state.gameBoard,
     state.matchScore,
   ]);
+
   const actions = useContext(ActionsContext);
 
-  // Return early if doubling is disabled for this match.
-  if (!doublingCubeData.enabled) {
-    return null;
-  }
+  const playerOneCoins = players[Player.One].coins;
+  const playerTwoCoins = players[Player.Two].coins;
 
-  // Return early here since further logic requires `players` data
-  // to be fully set, which won't occur until these states have been
-  // reached.
-  if (
-    gameState !== GameState.PlayerRolling &&
-    gameState !== GameState.PlayerOfferingDouble
-  ) {
-    return null;
-  }
+  // بررسی فعال بودن دوبل
+  if (!doublingCubeData.enabled) return null;
 
+  // وضعیت نمایش دکمه دوبل
   let showOfferDoubleButton = false;
   if (actions instanceof LocalGameActions) {
     showOfferDoubleButton =
@@ -51,6 +46,11 @@ const OfferDoubleButton: FunctionComponent = () => {
         doublingCubeData.owner === getClientPlayer(players));
   }
 
+  // بررسی شرط سکه‌ها
+  const canDouble =
+    playerOneCoins >= MIN_COINS_TO_PLAY && playerTwoCoins >= MIN_COINS_TO_PLAY;
+
+  // نمایش دکمه قبول دوبل یا فورفیت
   let showAcceptDoubleMenu = false;
   let showWaitingForPlayerToAccept = false;
   if (actions instanceof LocalGameActions) {
@@ -60,13 +60,16 @@ const OfferDoubleButton: FunctionComponent = () => {
     showWaitingForPlayerToAccept = !showAcceptDoubleMenu;
   }
 
-  if (gameState === GameState.PlayerRolling && showOfferDoubleButton) {
+  // رندر دکمه‌ها
+  if (gameState === GameState.PlayerRolling && showOfferDoubleButton && canDouble) {
     return (
-      <div className={"Offer-double-button-wrapper"}>
+      <div className="Offer-double-button-wrapper">
         <button
-          className={"Offer-double-button"}
+          className="Offer-double-button"
           onClick={async () => {
             await actions.offerDoubleButtonClicked();
+            // افزودن سکه وسط به مقدار Pot
+            doublingCubeData.gameStakes = INITIAL_POT;
           }}
         >
           Double x2
@@ -77,53 +80,39 @@ const OfferDoubleButton: FunctionComponent = () => {
     gameState === GameState.PlayerOfferingDouble &&
     showAcceptDoubleMenu
   ) {
-    let text = null;
-    if (actions instanceof LocalGameActions) {
-      text =
-        "Player " +
-        (currentPlayer === Player.One ? "1" : "2") +
-        " offers a double!";
-    } else {
-      text = "Opponent offers a double!";
-    }
     return (
-      <div className={"Accept-double-menu-wrapper"}>
-        <div className={"Accept-double-menu-text-wrapper"}>{text}</div>
-        <div className={"Accept-double-menu-buttons-wrapper"}>
+      <div className="Accept-double-menu-wrapper">
+        <div className="Accept-double-menu-text-wrapper">
+          {actions instanceof LocalGameActions
+            ? `Player ${currentPlayer === Player.One ? "1" : "2"} offers a double!`
+            : "Opponent offers a double!"}
+        </div>
+        <div className="Accept-double-menu-buttons-wrapper">
           <button
-            className={"Forfeit-game-button"}
+            className="Forfeit-game-button"
             onClick={async () => {
-              const pointsWon = doublingCubeData.enabled
-                ? doublingCubeData.gameStakes
-                : 1;
-
-              const newMatchScore: MatchScore = {
-                [Player.One]:
-                  matchScore[Player.One] +
-                  (currentPlayer === Player.One ? pointsWon : 0),
-                [Player.Two]:
-                  matchScore[Player.Two] +
-                  (currentPlayer === Player.Two ? pointsWon : 0),
-                pointsRequiredToWin: matchScore.pointsRequiredToWin,
-              };
-              await actions.forfeitButtonClicked(gameBoardState, newMatchScore);
+              // انتقال سکه‌ها به بازیکن دیگر در صورت فورفیت
+              await actions.forfeitButtonClicked(gameBoardState, matchScore);
             }}
           >
             Forfeit
           </button>
-          <button
-            className={"Accept-double-button"}
-            onClick={async () => {
-              const newOwner =
-                currentPlayer === Player.One ? Player.Two : Player.One;
-              await actions.acceptDoubleButtonClicked(
-                newOwner,
-                doublingCubeData.gameStakes * 2
-              );
-            }}
-          >
-            Accept
-          </button>
+          {canDouble && (
+            <button
+              className="Accept-double-button"
+              onClick={async () => {
+                const newOwner =
+                  currentPlayer === Player.One ? Player.Two : Player.One;
+                await actions.acceptDoubleButtonClicked(
+                  newOwner,
+                  doublingCubeData.gameStakes * 2
+                );
+                doublingCubeData.gameStakes *= 2;
+              }}
+            >
+              Accept
+            </button>
+          )}
         </div>
       </div>
     );
@@ -132,15 +121,20 @@ const OfferDoubleButton: FunctionComponent = () => {
     showWaitingForPlayerToAccept
   ) {
     return (
-      <div className={"Waiting-for-accept-double-wrapper"}>
-        <div className={"Waiting-for-accept-double-text-wrapper"}>
-          {"Waiting for opponent to accept or forfeit"}
+      <div className="Waiting-for-accept-double-wrapper">
+        <div className="Waiting-for-accept-double-text-wrapper">
+          Waiting for opponent to accept or forfeit
         </div>
-        <div className={"Waiting-spinner"} />
+        <div className="Waiting-spinner" />
       </div>
     );
   } else {
-    return null;
+    // نمایش مقدار Pot در گوشه بازی
+    return (
+      <div className="Pot-display-wrapper">
+        <span>Pot: {doublingCubeData.gameStakes || INITIAL_POT}</span>
+      </div>
+    );
   }
 };
 
