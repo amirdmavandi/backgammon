@@ -1,12 +1,14 @@
-     import cx from "classnames";
-import { FunctionComponent, useContext } from "react";
+        import cx from "classnames";
+import { FunctionComponent, useContext, useEffect } from "react";
 import { ActionsContext, LocalGameActions } from "./ActionsContext";
 import Checker, { CheckerStatus } from "./Checker";
 import { Color, MovementDirection, Player } from "./Types";
-import { useAppSelector } from "./store/hooks";
+import { useAppSelector, useAppDispatch } from "./store/hooks";
 import { pipCount } from "./store/gameBoardSlice";
 import DoublingCube from "./DoublingCube";
 import { GameState } from "./store/gameStateSlice";
+import { subtractCoins } from "./store/playerCoinsSlice"; // Redux action برای کم کردن سکه
+import { setPotCoins } from "./store/doublingCubeSlice"; // مقدار Pot
 
 export enum PlayerCardSide {
   Top = "TOP",
@@ -18,10 +20,13 @@ type PlayerCardProps = {
   playerPerspective: Player;
 };
 
+const INITIAL_POT = 10; // سکه اولیه هر بازی
+
 const PlayerCard: FunctionComponent<PlayerCardProps> = ({
   side,
   playerPerspective,
 }: PlayerCardProps) => {
+  const dispatch = useAppDispatch();
   const [
     gameBoardState,
     settings,
@@ -29,7 +34,8 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
     doublingCubeData,
     gameState,
     matchScore,
-    playerCoins, // اضافه شد: گرفتن مقدار سکه از Redux
+    playerCoins,
+    playersInfo, // {id, displayName, coins} هر بازیکن از وردپرس
   ] = useAppSelector((state) => [
     state.gameBoard,
     state.settings,
@@ -37,13 +43,14 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
     state.doublingCube,
     state.gameState,
     state.matchScore,
-    state.playerCoins, // اضافه شد
+    state.playerCoins,
+    state.players, 
   ]);
-  let actions = useContext(ActionsContext);
+
+  const actions = useContext(ActionsContext);
 
   let playerOneColor = settings.playerOneColor;
-  let playerTwoColor =
-    playerOneColor === Color.White ? Color.Black : Color.White;
+  let playerTwoColor = playerOneColor === Color.White ? Color.Black : Color.White;
 
   let doublingCube = null;
 
@@ -51,46 +58,36 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
   let pips = 167;
   let color = Color.Black;
   let playerScore = 0;
-  let coins = 0; // مقدار سکه برای نمایش
+  let coins = 0;
+
+  // 💰 کم کردن سکه هر بازیکن در شروع بازی و اضافه کردن به Pot
+  useEffect(() => {
+    if (gameState === GameState.PlayerRolling && doublingCubeData.gameStakes === 0) {
+      dispatch(subtractCoins({ player: "playerOne", amount: INITIAL_POT }));
+      dispatch(subtractCoins({ player: "playerTwo", amount: INITIAL_POT }));
+      dispatch(setPotCoins(INITIAL_POT * 2));
+    }
+  }, [gameState, dispatch, doublingCubeData.gameStakes]);
 
   if (side === PlayerCardSide.Bottom) {
-    if (actions instanceof LocalGameActions) {
-      playerName = playerPerspective === Player.One ? "Player 1" : "Player 2";
-    } else {
-      playerName = "You";
-    }
+    const player = playersInfo[playerPerspective];
+    playerName = actions instanceof LocalGameActions
+      ? playerPerspective === Player.One ? "Player 1" : "Player 2"
+      : player.displayName || "You";
     pips = pipCount(gameBoardState, playerPerspective);
     color = playerPerspective === Player.One ? playerOneColor : playerTwoColor;
-    if (doublingCubeData.owner === playerPerspective) {
-      doublingCube = <DoublingCube />;
-    }
+    if (doublingCubeData.owner === playerPerspective) doublingCube = <DoublingCube />;
     playerScore = matchScore[playerPerspective];
-    coins = playerCoins[playerPerspective]; // مقدار سکه برای بازیکن
+    coins = playerCoins[playerPerspective];
   } else {
-    if (actions instanceof LocalGameActions) {
-      playerName = playerPerspective === Player.One ? "Player 2" : "Player 1";
-    } else {
-      playerName = "Opponent";
-    }
-    pips = pipCount(
-      gameBoardState,
-      playerPerspective === Player.One ? Player.Two : Player.One
-    );
-    color = playerPerspective === Player.Two ? playerOneColor : playerTwoColor;
-    if (
-      doublingCubeData.owner !== null &&
-      doublingCubeData.owner !== playerPerspective
-    ) {
-      doublingCube = <DoublingCube />;
-    }
-    playerScore =
-      playerPerspective === Player.One
-        ? matchScore[Player.Two]
-        : matchScore[Player.One];
-    coins =
-      playerPerspective === Player.One
-        ? playerCoins[Player.Two]
-        : playerCoins[Player.One]; // سکه حریف
+    const opponentPerspective = playerPerspective === Player.One ? Player.Two : Player.One;
+    const player = playersInfo[opponentPerspective];
+    playerName = actions instanceof LocalGameActions ? (opponentPerspective === Player.One ? "Player 1" : "Player 2") : player.displayName || "Opponent";
+    pips = pipCount(gameBoardState, opponentPerspective);
+    color = opponentPerspective === Player.Two ? playerOneColor : playerTwoColor;
+    if (doublingCubeData.owner !== null && doublingCubeData.owner !== opponentPerspective) doublingCube = <DoublingCube />;
+    playerScore = opponentPerspective === Player.One ? matchScore[Player.Two] : matchScore[Player.One];
+    coins = playerCoins[opponentPerspective];
   }
 
   return (
@@ -98,28 +95,18 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
       className={cx("Player-card-wrapper", {
         bottom: side === PlayerCardSide.Bottom,
         cw:
-          (settings.movementDirection === MovementDirection.Clockwise &&
-            playerPerspective === Player.One) ||
-          (settings.movementDirection === MovementDirection.CounterClockwise &&
-            playerPerspective === Player.Two),
+          (settings.movementDirection === MovementDirection.Clockwise && playerPerspective === Player.One) ||
+          (settings.movementDirection === MovementDirection.CounterClockwise && playerPerspective === Player.Two),
         current:
           (gameState === GameState.PlayerMoving ||
             gameState === GameState.PlayerOfferingDouble ||
             gameState === GameState.PlayerRolling) &&
-          ((side === PlayerCardSide.Bottom &&
-            currentPlayer === playerPerspective) ||
-            (side === PlayerCardSide.Top &&
-              currentPlayer !== playerPerspective)),
+          ((side === PlayerCardSide.Bottom && currentPlayer === playerPerspective) ||
+            (side === PlayerCardSide.Top && currentPlayer !== playerPerspective)),
       })}
     >
       <div className={"Player-card-checker-wrapper"}>
-        <Checker
-          color={color}
-          checkerPulse={false}
-          status={CheckerStatus.None}
-          onAnimationComplete={() => {}}
-          animation={null}
-        />
+        <Checker color={color} checkerPulse={false} status={CheckerStatus.None} onAnimationComplete={() => {}} animation={null} />
       </div>
       <div className={"Player-name-and-score-wrapper"}>
         <div className={"Player-name-wrapper"}>{playerName}</div>
@@ -127,13 +114,8 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
           <div className={"Player-pip-count-wrapper"}>{"Pips: " + pips}</div>
           <div className={"Player-points-wrapper"}>
             {"Points: " + playerScore + " of "}
-            {
-              <span className={"Player-card-total-match-points"}>
-                {matchScore.pointsRequiredToWin}
-              </span>
-            }
+            <span className={"Player-card-total-match-points"}>{matchScore.pointsRequiredToWin}</span>
           </div>
-          {/* ✅ نمایش سکه به انگلیسی */}
           <div className={"Player-coins-wrapper"}>{"Coins: " + coins + " 🪙"}</div>
         </div>
       </div>
