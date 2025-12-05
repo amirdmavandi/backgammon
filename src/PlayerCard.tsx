@@ -1,4 +1,4 @@
-        import cx from "classnames";
+          import cx from "classnames";
 import { FunctionComponent, useContext, useEffect } from "react";
 import { ActionsContext, LocalGameActions } from "./ActionsContext";
 import Checker, { CheckerStatus } from "./Checker";
@@ -7,8 +7,8 @@ import { useAppSelector, useAppDispatch } from "./store/hooks";
 import { pipCount } from "./store/gameBoardSlice";
 import DoublingCube from "./DoublingCube";
 import { GameState } from "./store/gameStateSlice";
-import { subtractCoins } from "./store/playerCoinsSlice"; // Redux action برای کم کردن سکه
-import { setPotCoins } from "./store/doublingCubeSlice"; // مقدار Pot
+import { subtractCoins, updateCoinsToWP } from "./store/playerCoinsSlice"; // Redux action + async WP
+import { setPotCoins } from "./store/potSlice"; // مقدار Pot وسط
 
 export enum PlayerCardSide {
   Top = "TOP",
@@ -22,10 +22,7 @@ type PlayerCardProps = {
 
 const INITIAL_POT = 10; // سکه اولیه هر بازی
 
-const PlayerCard: FunctionComponent<PlayerCardProps> = ({
-  side,
-  playerPerspective,
-}: PlayerCardProps) => {
+const PlayerCard: FunctionComponent<PlayerCardProps> = ({ side, playerPerspective }) => {
   const dispatch = useAppDispatch();
   const [
     gameBoardState,
@@ -35,7 +32,8 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
     gameState,
     matchScore,
     playerCoins,
-    playersInfo, // {id, displayName, coins} هر بازیکن از وردپرس
+    playersInfo,
+    pot,
   ] = useAppSelector((state) => [
     state.gameBoard,
     state.settings,
@@ -44,7 +42,8 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
     state.gameState,
     state.matchScore,
     state.playerCoins,
-    state.players, 
+    state.players,
+    state.pot,
   ]);
 
   const actions = useContext(ActionsContext);
@@ -53,22 +52,28 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
   let playerTwoColor = playerOneColor === Color.White ? Color.Black : Color.White;
 
   let doublingCube = null;
-
   let playerName = "";
   let pips = 167;
   let color = Color.Black;
   let playerScore = 0;
   let coins = 0;
 
-  // 💰 کم کردن سکه هر بازیکن در شروع بازی و اضافه کردن به Pot
+  // 💰 کم کردن سکه هر بازیکن در شروع بازی و اضافه کردن به Pot + ثبت در وردپرس
   useEffect(() => {
-    if (gameState === GameState.PlayerRolling && doublingCubeData.gameStakes === 0) {
+    if (gameState === GameState.PlayerRolling && pot.coins === 0) {
+      // کم کردن سکه از هر بازیکن
       dispatch(subtractCoins({ player: "playerOne", amount: INITIAL_POT }));
       dispatch(subtractCoins({ player: "playerTwo", amount: INITIAL_POT }));
+      // اضافه کردن به Pot
       dispatch(setPotCoins(INITIAL_POT * 2));
-    }
-  }, [gameState, dispatch, doublingCubeData.gameStakes]);
 
+      // کم کردن سکه از وردپرس
+      dispatch(updateCoinsToWP({ userId: playersInfo[Player.One].id, amount: INITIAL_POT, type: "subtract" }));
+      dispatch(updateCoinsToWP({ userId: playersInfo[Player.Two].id, amount: INITIAL_POT, type: "subtract" }));
+    }
+  }, [gameState, dispatch, pot.coins, playersInfo]);
+
+  // تعیین مقادیر کارت بازیکن
   if (side === PlayerCardSide.Bottom) {
     const player = playersInfo[playerPerspective];
     playerName = actions instanceof LocalGameActions
@@ -82,7 +87,9 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
   } else {
     const opponentPerspective = playerPerspective === Player.One ? Player.Two : Player.One;
     const player = playersInfo[opponentPerspective];
-    playerName = actions instanceof LocalGameActions ? (opponentPerspective === Player.One ? "Player 1" : "Player 2") : player.displayName || "Opponent";
+    playerName = actions instanceof LocalGameActions
+      ? (opponentPerspective === Player.One ? "Player 1" : "Player 2")
+      : player.displayName || "Opponent";
     pips = pipCount(gameBoardState, opponentPerspective);
     color = opponentPerspective === Player.Two ? playerOneColor : playerTwoColor;
     if (doublingCubeData.owner !== null && doublingCubeData.owner !== opponentPerspective) doublingCube = <DoublingCube />;
@@ -124,4 +131,4 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({
   );
 };
 
-export default PlayerCard; 
+export default PlayerCard;      
