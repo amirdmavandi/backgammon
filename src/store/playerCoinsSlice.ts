@@ -1,4 +1,4 @@
-import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
+      import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
 import axios from "axios";
 
 interface PlayerCoinsState {
@@ -22,14 +22,14 @@ export const fetchCoinsFromWP = createAsyncThunk(
   "playerCoins/fetchCoinsFromWP",
   async (userId: number) => {
     const res = await axios.get(
-      `https://YOUR-SITE.com/wp-json/mycred/v1/balance/${userId}`
+      `https://khodrodivar.info/barandesho/wp-json/mycred/v1/balance/${userId}`
     );
-    return { userId, balance: res.data.balance };
+    return { userId, balance: res.data.balance ?? 0 }; // اگر کاربر سکه نداشته باشه صفر برمیگرده
   }
 );
 
 // ----------------------------------------------------
-// 2) آپدیت کردن سکه در وردپرس (بردن/باختن)
+// 2) آپدیت کردن سکه در وردپرس (برد/باخت)
 // ----------------------------------------------------
 export const updateCoinsToWP = createAsyncThunk(
   "playerCoins/updateCoinsToWP",
@@ -44,8 +44,8 @@ export const updateCoinsToWP = createAsyncThunk(
   }) => {
     const url =
       type === "add"
-        ? "https://YOUR-SITE.com/wp-json/mycred/v1/add"
-        : "https://YOUR-SITE.com/wp-json/mycred/v1/subtract";
+        ? "https://khodrodivar.info/barandesho/wp-json/mycred/v1/add"
+        : "https://khodrodivar.info/barandesho/wp-json/mycred/v1/subtract";
 
     await axios.post(url, {
       user_id: userId,
@@ -80,9 +80,8 @@ const playerCoinsSlice = createSlice({
     builder.addCase(fetchCoinsFromWP.fulfilled, (state, action) => {
       state.loading = false;
       if (action.payload.userId === 1) state.playerOne = action.payload.balance;
-      if (action.payload.userId === 2) state.playerTwo = action.payload.balance;
+      if (action.payload.userId === 102) state.playerTwo = action.payload.balance;
     });
-
     builder.addCase(fetchCoinsFromWP.rejected, (state) => {
       state.loading = false;
       state.error = "Error fetching coins from WordPress";
@@ -91,13 +90,8 @@ const playerCoinsSlice = createSlice({
     // ===== Update Coins =====
     builder.addCase(updateCoinsToWP.fulfilled, (state, action) => {
       const { userId, amount, type } = action.payload;
-
-      if (userId === 1) {
-        state.playerOne += type === "add" ? amount : -amount;
-      }
-      if (userId === 2) {
-        state.playerTwo += type === "add" ? amount : -amount;
-      }
+      if (userId === 1) state.playerOne += type === "add" ? amount : -amount;
+      if (userId === 102) state.playerTwo += type === "add" ? amount : -amount;
     });
   },
 });
