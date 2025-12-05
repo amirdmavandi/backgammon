@@ -1,4 +1,4 @@
-import { FunctionComponent, useEffect } from "react";
+      import { FunctionComponent, useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import GameBoard from "./GameBoard";
 import { Player } from "./Types";
@@ -47,6 +47,8 @@ const GameRoom: FunctionComponent<GameRoomProps> = ({
           })
         );
         alert(`Player ${winnerUserId} won! Coins transferred.`);
+      } else {
+        alert("Game tied! No coins transferred.");
       }
     }
   }, [playerOneScore, playerTwoScore, stakeAmount, dispatch]);
@@ -68,7 +70,7 @@ const GameRoom: FunctionComponent<GameRoomProps> = ({
         side={PlayerCardSide.Bottom}
         playerPerspective={playerPerspective}
       />
-      <div>
+      <div style={{ marginTop: "1rem" }}>
         <h2>Player 1 Coins: {coins.playerOne}</h2>
         <h2>Player 2 Coins: {coins.playerTwo}</h2>
       </div>
