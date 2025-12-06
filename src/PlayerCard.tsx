@@ -1,12 +1,11 @@
-           import cx from "classnames";
+                 import cx from "classnames";
 import { FunctionComponent, useContext } from "react";
-import { ActionsContext, LocalGameActions } from "./ActionsContext";
+import { ActionsContext } from "./ActionsContext";
 import Checker, { CheckerStatus } from "./Checker";
 import { Color, MovementDirection, Player } from "./Types";
 import { useAppSelector } from "./store/hooks";
 import { pipCount } from "./store/gameBoardSlice";
 import DoublingCube from "./DoublingCube";
-import { GameState } from "./store/gameStateSlice";
 
 export enum PlayerCardSide {
   Top = "TOP",
@@ -45,11 +44,8 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({ side, playerPerspectiv
   let pips = 167;
   let color = Color.Black;
   let playerScore = 0;
-  let potCoins = pot.coins; // ← سکه وسط
+  const potCoins = pot.coins; // فقط سکه وسط
 
-  // ===========================
-  //   تعیین بازیکن بالا/پایین
-  // ===========================
   if (side === PlayerCardSide.Bottom) {
     const p = playersInfo[playerPerspective];
     playerName = p.displayName || "Player";
@@ -99,16 +95,13 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({ side, playerPerspectiv
       </div>
 
       <div className="Player-name-and-score-wrapper">
-
-        {/* نام بازیکن */}
+        {/* نام بازیکن و سکه وسط */}
         <div className="Player-name-wrapper">
           {playerName} — {potCoins} 🪙
         </div>
 
-        {/* اطلاعات */}
         <div className="Player-score-wrapper">
           <div className="Player-pip-count-wrapper">{"Pips: " + pips}</div>
-
           <div className="Player-points-wrapper">
             {"Points: " + playerScore + " of "}
             <span className="Player-card-total-match-points">
@@ -125,4 +118,4 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({ side, playerPerspectiv
   );
 };
 
-export default PlayerCard;     
+export default PlayerCard;
