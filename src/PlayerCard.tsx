@@ -1,14 +1,12 @@
-          import cx from "classnames";
-import { FunctionComponent, useContext, useEffect } from "react";
+           import cx from "classnames";
+import { FunctionComponent, useContext } from "react";
 import { ActionsContext, LocalGameActions } from "./ActionsContext";
 import Checker, { CheckerStatus } from "./Checker";
 import { Color, MovementDirection, Player } from "./Types";
-import { useAppSelector, useAppDispatch } from "./store/hooks";
+import { useAppSelector } from "./store/hooks";
 import { pipCount } from "./store/gameBoardSlice";
 import DoublingCube from "./DoublingCube";
 import { GameState } from "./store/gameStateSlice";
-import { subtractCoins, updateCoinsToWP } from "./store/playerCoinsSlice"; // Redux action + async WP
-import { setPotCoins } from "./store/potSlice"; // مقدار Pot وسط
 
 export enum PlayerCardSide {
   Top = "TOP",
@@ -20,10 +18,7 @@ type PlayerCardProps = {
   playerPerspective: Player;
 };
 
-const INITIAL_POT = 10; // سکه اولیه هر بازی
-
 const PlayerCard: FunctionComponent<PlayerCardProps> = ({ side, playerPerspective }) => {
-  const dispatch = useAppDispatch();
   const [
     gameBoardState,
     settings,
@@ -31,9 +26,8 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({ side, playerPerspectiv
     doublingCubeData,
     gameState,
     matchScore,
-    playerCoins,
-    playersInfo,
     pot,
+    playersInfo,
   ] = useAppSelector((state) => [
     state.gameBoard,
     state.settings,
@@ -41,60 +35,42 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({ side, playerPerspectiv
     state.doublingCube,
     state.gameState,
     state.matchScore,
-    state.playerCoins,
-    state.players,
     state.pot,
+    state.players,
   ]);
 
   const actions = useContext(ActionsContext);
 
-  let playerOneColor = settings.playerOneColor;
-  let playerTwoColor = playerOneColor === Color.White ? Color.Black : Color.White;
-
-  let doublingCube = null;
   let playerName = "";
   let pips = 167;
   let color = Color.Black;
   let playerScore = 0;
-  let coins = 0;
+  let potCoins = pot.coins; // ← سکه وسط
 
-  // 💰 کم کردن سکه هر بازیکن در شروع بازی و اضافه کردن به Pot + ثبت در وردپرس
-  useEffect(() => {
-    if (gameState === GameState.PlayerRolling && pot.coins === 0) {
-      // کم کردن سکه از هر بازیکن
-      dispatch(subtractCoins({ player: "playerOne", amount: INITIAL_POT }));
-      dispatch(subtractCoins({ player: "playerTwo", amount: INITIAL_POT }));
-      // اضافه کردن به Pot
-      dispatch(setPotCoins(INITIAL_POT * 2));
-
-      // کم کردن سکه از وردپرس
-      dispatch(updateCoinsToWP({ userId: playersInfo[Player.One].id, amount: INITIAL_POT, type: "subtract" }));
-      dispatch(updateCoinsToWP({ userId: playersInfo[Player.Two].id, amount: INITIAL_POT, type: "subtract" }));
-    }
-  }, [gameState, dispatch, pot.coins, playersInfo]);
-
-  // تعیین مقادیر کارت بازیکن
+  // ===========================
+  //   تعیین بازیکن بالا/پایین
+  // ===========================
   if (side === PlayerCardSide.Bottom) {
-    const player = playersInfo[playerPerspective];
-    playerName = actions instanceof LocalGameActions
-      ? playerPerspective === Player.One ? "Player 1" : "Player 2"
-      : player.displayName || "You";
+    const p = playersInfo[playerPerspective];
+    playerName = p.displayName || "Player";
     pips = pipCount(gameBoardState, playerPerspective);
-    color = playerPerspective === Player.One ? playerOneColor : playerTwoColor;
-    if (doublingCubeData.owner === playerPerspective) doublingCube = <DoublingCube />;
     playerScore = matchScore[playerPerspective];
-    coins = playerCoins[playerPerspective];
+    color = playerPerspective === Player.One
+      ? settings.playerOneColor
+      : settings.playerOneColor === Color.White
+      ? Color.Black
+      : Color.White;
   } else {
-    const opponentPerspective = playerPerspective === Player.One ? Player.Two : Player.One;
-    const player = playersInfo[opponentPerspective];
-    playerName = actions instanceof LocalGameActions
-      ? (opponentPerspective === Player.One ? "Player 1" : "Player 2")
-      : player.displayName || "Opponent";
-    pips = pipCount(gameBoardState, opponentPerspective);
-    color = opponentPerspective === Player.Two ? playerOneColor : playerTwoColor;
-    if (doublingCubeData.owner !== null && doublingCubeData.owner !== opponentPerspective) doublingCube = <DoublingCube />;
-    playerScore = opponentPerspective === Player.One ? matchScore[Player.Two] : matchScore[Player.One];
-    coins = playerCoins[opponentPerspective];
+    const opp = playerPerspective === Player.One ? Player.Two : Player.One;
+    const p = playersInfo[opp];
+    playerName = p.displayName || "Opponent";
+    pips = pipCount(gameBoardState, opp);
+    playerScore = matchScore[opp];
+    color = opp === Player.One
+      ? settings.playerOneColor
+      : settings.playerOneColor === Color.White
+      ? Color.Black
+      : Color.White;
   }
 
   return (
@@ -112,23 +88,41 @@ const PlayerCard: FunctionComponent<PlayerCardProps> = ({ side, playerPerspectiv
             (side === PlayerCardSide.Top && currentPlayer !== playerPerspective)),
       })}
     >
-      <div className={"Player-card-checker-wrapper"}>
-        <Checker color={color} checkerPulse={false} status={CheckerStatus.None} onAnimationComplete={() => {}} animation={null} />
+      <div className="Player-card-checker-wrapper">
+        <Checker
+          color={color}
+          checkerPulse={false}
+          status={CheckerStatus.None}
+          onAnimationComplete={() => {}}
+          animation={null}
+        />
       </div>
-      <div className={"Player-name-and-score-wrapper"}>
-        <div className={"Player-name-wrapper"}>{playerName}</div>
-        <div className={"Player-score-wrapper"}>
-          <div className={"Player-pip-count-wrapper"}>{"Pips: " + pips}</div>
-          <div className={"Player-points-wrapper"}>
+
+      <div className="Player-name-and-score-wrapper">
+
+        {/* نام بازیکن */}
+        <div className="Player-name-wrapper">
+          {playerName} — {potCoins} 🪙
+        </div>
+
+        {/* اطلاعات */}
+        <div className="Player-score-wrapper">
+          <div className="Player-pip-count-wrapper">{"Pips: " + pips}</div>
+
+          <div className="Player-points-wrapper">
             {"Points: " + playerScore + " of "}
-            <span className={"Player-card-total-match-points"}>{matchScore.pointsRequiredToWin}</span>
+            <span className="Player-card-total-match-points">
+              {matchScore.pointsRequiredToWin}
+            </span>
           </div>
-          <div className={"Player-coins-wrapper"}>{"Coins: " + coins + " 🪙"}</div>
         </div>
       </div>
-      <div className={"Player-card-doubling-cube-wrapper"}>{doublingCube}</div>
+
+      <div className="Player-card-doubling-cube-wrapper">
+        {doublingCubeData.owner === playerPerspective && <DoublingCube />}
+      </div>
     </div>
   );
 };
 
-export default PlayerCard;      
+export default PlayerCard;     
